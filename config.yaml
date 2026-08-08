@@ -1,0 +1,99 @@
+# Source configuration for the UPSC Current Affairs Agent
+# Add/remove sources here without touching any code.
+
+# --- Daily / near-daily sources (checked every run) ---
+
+rss_sources:
+  government:
+    - name: "PIB - All Ministries"
+      url: "https://static.pib.gov.in/WriteReadData/RSS/englishrelease.xml"
+  newspapers:
+    - name: "The Hindu - Editorial"
+      url: "https://www.thehindu.com/opinion/editorial/feeder/default.rss"
+    - name: "The Hindu - National"
+      url: "https://www.thehindu.com/news/national/feeder/default.rss"
+    - name: "Indian Express - Explained"
+      url: "https://indianexpress.com/section/explained/feed/"
+  magazines:
+    - name: "Down To Earth"
+      url: "https://www.downtoearth.org.in/feed"
+
+# Sites without usable RSS - handled via ingest/scrapers.py.
+# Selectors will need periodic maintenance if these sites redesign.
+scrape_sources:
+  - name: "PRS India - Bill Track"
+    url: "https://prsindia.org/billtrack"
+    link_selector: "h3.cate a"   # bill title headings; page lists newest-first
+    max_items: 30                # cap so an unpaginated archive isn't re-judged as "current" every run
+    notes: "Legislative summaries, useful for Polity/Governance/GS2 topics."
+
+# --- Monthly PDF sources (checked once a new issue is expected) ---
+# These aren't day-to-day news - they're periodic compilations. Handled by
+# ingest/monthly_pdfs.py, which chunks each PDF into article-sized pieces
+# and feeds them through the same relevance pipeline as daily articles.
+#
+# Some of these (Vision IAS in particular) sit behind a login/subscription
+# and can't be reliably auto-scraped - for those, drop the monthly PDF
+# manually into knowledge_base/monthly_pdfs/manual/ and the pipeline picks
+# it up automatically either way (same pattern as the PYQ fetcher).
+monthly_pdf_sources:
+  - name: "Yojana Magazine"
+    listing_url: "https://yojana.gov.in/"
+    auto_fetch: true
+    notes: "Publications Division site - monthly issue, English edition."
+  - name: "Kurukshetra Magazine"
+    listing_url: "https://yojana.gov.in/kurukshetra.aspx"
+    auto_fetch: true
+    notes: "Rural development focus - useful for GS2/GS3 (agriculture, poverty, panchayati raj)."
+  - name: "PRS Monthly Policy Review"
+    listing_url: "https://prsindia.org/policy/monthly-policy-review"
+    auto_fetch: true
+    notes: "Best source for Parliament/policy tracking - GS2 Governance & Polity."
+  - name: "Vision IAS Monthly Current Affairs"
+    listing_url: "https://visionias.in/current-affairs/monthly-magazine"
+    auto_fetch: false
+    notes: "Often behind login/subscription. Drop the monthly PDF manually into knowledge_base/monthly_pdfs/manual/ - filename pattern: visionias_<YYYY-MM>.pdf"
+
+# --- Annual sources (checked once a year, around the Union Budget in Feb) ---
+annual_pdf_sources:
+  - name: "Union Budget"
+    listing_url: "https://www.indiabudget.gov.in/"
+    auto_fetch: true
+    notes: "Key budget documents (Budget at a Glance, Highlights) - GS3 economy."
+  - name: "Economic Survey"
+    listing_url: "https://www.indiabudget.gov.in/economicsurvey/"
+    auto_fetch: true
+    notes: "Tabled a day before the Budget - GS3 economy, heavily used for both Prelims facts and Mains analysis."
+
+# --- Output ---
+notion:
+  database_or_page_id: "3b6490a9120980d3be51e64f25f18bd5"
+
+# --- LLM judging - two tiers, swappable free-tier providers ---
+# Tier 1 (llm.*) runs on EVERY incoming item - must stay cheap/free, since
+# volume is high (every article/PDF chunk gets one call here).
+# Tier 2 (llm.exam_angle) runs ONLY on items Tier 1 already marked relevant -
+# a much smaller set, so it's safe to point this at a stronger model
+# (still free-tier by default; bump to a paid model here if you want
+# sharper probable-questions/answer-examples without inflating Tier 1 cost).
+llm:
+  provider: "groq"           # groq | gemini | openrouter | ollama
+  model: "llama-3.3-70b-versatile"
+  fallback_provider: "gemini"
+  fallback_model: "gemini-2.0-flash"
+
+  exam_angle:
+    provider: "gemini"                # can be same as Tier 1, or a stronger option
+    model: "gemini-2.0-flash"         # bump to a stronger/paid model here if Tier 1 output feels bland
+    fallback_provider: "groq"
+    fallback_model: "llama-3.3-70b-versatile"
+    # Optional paid escape hatch - uncomment and set ANTHROPIC_API_KEY if you
+    # want occasional sharper exam-angle output (low volume = low cost here):
+    # provider: "anthropic"
+    # model: "claude-haiku-4-5-20251001"
+
+embeddings:
+  model: "BAAI/bge-small-en-v1.5"   # local, via sentence-transformers
+
+retrieval:
+  top_k: 6   # slightly higher than default since context now spans Prelims + Mains + Ethics

@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+knowledge_base/pyqs/raw/*.pdf
+knowledge_base/monthly_pdfs/auto/*.pdf
+knowledge_base/monthly_pdfs/manual/*.pdf
+.claude/
+run_test*.log
