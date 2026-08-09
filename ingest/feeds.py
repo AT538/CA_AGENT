@@ -33,6 +33,8 @@ def fetch_all_rss() -> list[dict]:
                     "source": source["name"],
                     "category": category,
                 })
+            print(f"  -> {len(feed.entries)} entries"
+                  f"{' (status ' + str(feed.get('status')) + ')' if feed.get('status') and feed.get('status') != 200 else ''}")
 
     print(f"Fetched {len(articles)} articles total from RSS sources")
     return articles
