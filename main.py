@@ -25,7 +25,9 @@ CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 def run():
     print("=== UPSC Current Affairs Agent - daily run ===\n")
-    top_k = yaml.safe_load(CONFIG_PATH.read_text()).get("retrieval", {}).get("top_k", 5)
+    config = yaml.safe_load(CONFIG_PATH.read_text())
+    top_k = config.get("retrieval", {}).get("top_k", 5)
+    max_per_run = config.get("pipeline", {}).get("max_llm_items_per_run")
 
     print("Step 1: Ingesting daily sources (RSS + scraped)...")
     articles = fetch_all_rss() + fetch_all_scraped()
@@ -38,6 +40,15 @@ def run():
     print("\nStep 2: Filtering out already-seen items...")
     new_articles = filter_new(articles)
     print(f"{len(new_articles)} new items to evaluate (of {len(articles)} total)")
+
+    if max_per_run and len(new_articles) > max_per_run:
+        # A single monthly PDF drop can add dozens of chunks at once, easily
+        # burning a whole day's free-tier token budget in one run. Daily
+        # RSS/scraped items come first in the list, so they're prioritized;
+        # the rest aren't marked seen, so they're picked up on later runs.
+        print(f"Capping this run to {max_per_run} items - "
+              f"remaining {len(new_articles) - max_per_run} will be picked up on later runs")
+        new_articles = new_articles[:max_per_run]
 
     print("\nStep 3: Retrieving context + judging relevance (Tier 1 - cheap, every item)...")
     relevant_items = []

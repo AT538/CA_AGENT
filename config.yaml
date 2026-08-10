@@ -8,10 +8,6 @@ rss_sources:
     - name: "PIB - All Ministries"
       url: "https://static.pib.gov.in/WriteReadData/RSS/englishrelease.xml"
   newspapers:
-    - name: "The Hindu - Editorial"
-      url: "https://www.thehindu.com/opinion/editorial/feeder/default.rss"
-    - name: "The Hindu - National"
-      url: "https://www.thehindu.com/news/national/feeder/default.rss"
     - name: "Indian Express - Explained"
       url: "https://indianexpress.com/section/explained/feed/"
   magazines:
@@ -68,6 +64,16 @@ annual_pdf_sources:
 # --- Output ---
 notion:
   database_or_page_id: "3b6490a9120980d3be51e64f25f18bd5"
+  # Separate page for exam_analysis output (PYQ trend analysis + future-year
+  # predictions) - share a page with your Notion integration and put its id
+  # here. Leave empty to skip Notion publishing (exam_analysis still caches
+  # results locally either way).
+  exam_analysis_page_id: ""
+  # Separate page for topic_agent output (Mains-ready topic summaries +
+  # model answers) - share a page with your Notion integration and put its
+  # id here. Leave empty to skip Notion publishing (results still cache
+  # locally either way).
+  topic_agent_page_id: ""
 
 # --- LLM judging - two tiers, swappable free-tier providers ---
 # Tier 1 (llm.*) runs on EVERY incoming item - must stay cheap/free, since
@@ -80,13 +86,21 @@ llm:
   provider: "groq"           # groq | gemini | openrouter | ollama
   model: "llama-3.3-70b-versatile"
   fallback_provider: "gemini"
-  fallback_model: "gemini-2.0-flash"
+  fallback_model: "gemini-2.5-flash-lite"   # highest free-tier RPD (1000/day) - gemini-2.0-flash's free tier was retired
+  # 3rd-line fallback if BOTH groq and gemini are exhausted for the day.
+  # Requires OPENROUTER_API_KEY. Verify this model slug is still on
+  # OpenRouter's free-models list (https://openrouter.ai/models?max_price=0)
+  # before relying on it - free model availability changes over time.
+  fallback_provider2: "openrouter"
+  fallback_model2: "meta-llama/llama-3.3-70b-instruct:free"
 
   exam_angle:
     provider: "gemini"                # can be same as Tier 1, or a stronger option
-    model: "gemini-2.0-flash"         # bump to a stronger/paid model here if Tier 1 output feels bland
+    model: "gemini-2.5-flash"         # free tier: 250 RPD/10 RPM - bump to a stronger/paid model if Tier 1 output feels bland
     fallback_provider: "groq"
     fallback_model: "llama-3.3-70b-versatile"
+    fallback_provider2: "openrouter"
+    fallback_model2: "meta-llama/llama-3.3-70b-instruct:free"
     # Optional paid escape hatch - uncomment and set ANTHROPIC_API_KEY if you
     # want occasional sharper exam-angle output (low volume = low cost here):
     # provider: "anthropic"
@@ -97,3 +111,49 @@ embeddings:
 
 retrieval:
   top_k: 6   # slightly higher than default since context now spans Prelims + Mains + Ethics
+
+# --- Run-level throttling ---
+# A single monthly PDF drop (Yojana/Kurukshetra/PRS) can add dozens of
+# ~500-word chunks in one run, each costing a Tier-1 LLM call - easily
+# burning a whole day's free-tier token budget (e.g. Groq's 100k TPD) in
+# one shot. This caps how many new items get judged per run; daily
+# RSS/scraped items are prioritized (fetched first), and anything over the
+# cap is simply left unseen, so it's picked up automatically on the next run.
+pipeline:
+  max_llm_items_per_run: 40
+
+# --- exam_analysis - on-demand PYQ trend analysis (separate tool, not part
+# of the daily pipeline; see exam_analysis/README.md) ---
+# analysis_llm runs once per question in a paper (a Mains paper is ~20
+# questions, Prelims GS1 is ~100) - moderate volume, run on demand.
+# prediction_llm runs once per invocation, fed a compact frequency summary
+# (not raw question text) - cheap regardless of how large the cache gets.
+exam_analysis:
+  analysis_llm:
+    provider: "groq"
+    model: "llama-3.3-70b-versatile"
+    fallback_provider: "gemini"
+    fallback_model: "gemini-2.5-flash-lite"
+    fallback_provider2: "openrouter"
+    fallback_model2: "meta-llama/llama-3.3-70b-instruct:free"
+
+  prediction_llm:
+    provider: "gemini"
+    model: "gemini-2.5-flash"
+    fallback_provider: "groq"
+    fallback_model: "llama-3.3-70b-versatile"
+    fallback_provider2: "openrouter"
+    fallback_model2: "meta-llama/llama-3.3-70b-instruct:free"
+
+# --- topic_agent - on-demand Mains topic summary + model answer generator
+# (separate tool, not part of the daily pipeline; see topic_agent/README.md) ---
+# One generation call per --topic invocation (low volume, user-triggered) -
+# no need for the two-tier split the other two subsystems use.
+topic_agent:
+  generation_llm:
+    provider: "groq"
+    model: "llama-3.3-70b-versatile"
+    fallback_provider: "gemini"
+    fallback_model: "gemini-2.5-flash-lite"
+    fallback_provider2: "openrouter"
+    fallback_model2: "meta-llama/llama-3.3-70b-instruct:free"

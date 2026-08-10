@@ -19,9 +19,10 @@ import re
 from pathlib import Path
 
 import httpx
-import pdfplumber
 import yaml
 from bs4 import BeautifulSoup
+
+from ingest.pdf_utils import chunk_words, extract_pdf_text
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 PDF_DIR = Path(__file__).parent.parent / "knowledge_base" / "monthly_pdfs"
@@ -100,16 +101,11 @@ def fetch_auto_sources():
 
 
 def _chunk_text(text: str, source_name: str, pdf_name: str) -> list[dict]:
-    words = text.split()
     chunks = []
-    for i in range(0, len(words), CHUNK_WORD_COUNT):
-        chunk_words = words[i:i + CHUNK_WORD_COUNT]
-        if len(chunk_words) < 50:  # skip trailing scraps
-            continue
-        chunk_text = " ".join(chunk_words)
+    for i, chunk_text in enumerate(chunk_words(text, CHUNK_WORD_COUNT)):
         chunks.append({
-            "url": f"file://{pdf_name}#chunk{i // CHUNK_WORD_COUNT}",
-            "title": f"{source_name} — {pdf_name} (part {i // CHUNK_WORD_COUNT + 1})",
+            "url": f"file://{pdf_name}#chunk{i}",
+            "title": f"{source_name} — {pdf_name} (part {i + 1})",
             "summary": chunk_text,
             "published": "",
             "source": source_name,
@@ -138,11 +134,7 @@ def parse_all_pdfs() -> list[dict]:
 
         print(f"Parsing monthly/annual PDF: {pdf_path.name}")
         try:
-            text_parts = []
-            with pdfplumber.open(pdf_path) as pdf:
-                for page in pdf.pages:
-                    text_parts.append(page.extract_text() or "")
-            full_text = "\n".join(text_parts)
+            full_text = extract_pdf_text(pdf_path)
         except Exception as e:
             print(f"  [error] couldn't extract text: {e}")
             continue

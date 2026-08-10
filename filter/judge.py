@@ -14,15 +14,15 @@ at a stronger model (still free-tier by default, but configured separately
 in config.yaml -> llm.exam_angle so it's easy to bump to something stronger,
 including a paid model occasionally, without touching Tier 1's cost profile).
 
-Both tiers are provider-agnostic through the same _PROVIDERS registry -
-swap models/providers per tier in config.yaml, no code changes needed.
+Both tiers are provider-agnostic through filter.llm_client's shared provider
+registry - swap models/providers per tier in config.yaml, no code changes needed.
 """
-
-import json
-import os
 
 import yaml
 from pathlib import Path
+
+from filter.llm_client import call_with_fallback
+from filter.retrieve import format_context
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 
@@ -74,109 +74,6 @@ def load_config() -> dict:
     return yaml.safe_load(CONFIG_PATH.read_text())
 
 
-def _format_context(matches: list[dict]) -> str:
-    lines = []
-    for m in matches:
-        meta = m["metadata"]
-        if meta.get("type") == "pyq":
-            tag = f"PYQ {meta.get('paper', '?')} {meta.get('year', '?')}"
-        else:
-            tag = meta.get("topic") or meta.get("type")
-        lines.append(f"- [{tag}] {m['document'][:200]}")
-    return "\n".join(lines)
-
-
-def _call_groq(prompt: str, model: str) -> str:
-    from groq import Groq
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
-    )
-    return resp.choices[0].message.content
-
-
-def _call_gemini(prompt: str, model: str) -> str:
-    import google.generativeai as genai
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    gen_model = genai.GenerativeModel(model)
-    resp = gen_model.generate_content(prompt)
-    return resp.text
-
-
-def _call_openrouter(prompt: str, model: str) -> str:
-    import httpx
-    resp = httpx.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"},
-        json={"model": model, "messages": [{"role": "user", "content": prompt}]},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
-
-
-def _call_ollama(prompt: str, model: str) -> str:
-    import httpx
-    resp = httpx.post(
-        "http://localhost:11434/api/generate",
-        json={"model": model, "prompt": prompt, "stream": False},
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()["response"]
-
-
-def _call_anthropic(prompt: str, model: str) -> str:
-    """Optional paid-tier option for the exam_angle tier only - not needed
-    for Tier 1. Requires ANTHROPIC_API_KEY if you choose to use it."""
-    import httpx
-    resp = httpx.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": os.environ["ANTHROPIC_API_KEY"],
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json={"model": model, "max_tokens": 1000, "messages": [{"role": "user", "content": prompt}]},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()["content"][0]["text"]
-
-
-_PROVIDERS = {
-    "groq": _call_groq,
-    "gemini": _call_gemini,
-    "openrouter": _call_openrouter,
-    "ollama": _call_ollama,
-    "anthropic": _call_anthropic,
-}
-
-
-def _parse_json_response(raw: str) -> dict:
-    cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    return json.loads(cleaned)
-
-
-def _call_with_fallback(prompt: str, tier_config: dict):
-    """Shared call+fallback logic for either tier. Returns parsed JSON dict,
-    or None if every configured provider failed (caller decides the default)."""
-    for provider_key, model_key in [
-        (tier_config.get("provider"), tier_config.get("model")),
-        (tier_config.get("fallback_provider"), tier_config.get("fallback_model")),
-    ]:
-        if not provider_key:
-            continue
-        try:
-            raw = _PROVIDERS[provider_key](prompt, model_key)
-            return _parse_json_response(raw)
-        except Exception as e:
-            print(f"[warn] provider {provider_key} failed: {e}")
-    return None
-
-
 def judge_relevance(article: dict, context_matches: list) -> dict:
     """
     TIER 1 - runs on every incoming item.
@@ -194,10 +91,10 @@ def judge_relevance(article: dict, context_matches: list) -> dict:
     prompt = RELEVANCE_PROMPT_TEMPLATE.format(
         title=article.get("title", ""),
         summary=article.get("summary", ""),
-        context=_format_context(context_matches),
+        context=format_context(context_matches),
     )
 
-    result = _call_with_fallback(prompt, tier_config)
+    result = call_with_fallback(prompt, tier_config)
     if result is not None:
         return result
 
@@ -232,10 +129,10 @@ def generate_exam_angle(article: dict, judgment: dict, context_matches: list) ->
         gs_paper=judgment.get("gs_paper", ""),
         topics=", ".join(judgment.get("topics", [])),
         relevance_note=judgment.get("relevance_note", ""),
-        context=_format_context(context_matches),
+        context=format_context(context_matches),
     )
 
-    result = _call_with_fallback(prompt, tier_config)
+    result = call_with_fallback(prompt, tier_config)
     if result is not None:
         return result
 

@@ -17,7 +17,7 @@ import json
 import re
 from pathlib import Path
 
-import pdfplumber
+from ingest.pdf_utils import extract_pdf_text
 
 RAW_DIR = Path(__file__).parent / "pyqs" / "raw"
 OUT_FILE = Path(__file__).parent / "pyqs.json"
@@ -25,14 +25,6 @@ OUT_FILE = Path(__file__).parent / "pyqs.json"
 FILENAME_PATTERN = re.compile(r"(\d{4})_(prelims_gs1|mains_gs1|mains_gs2|mains_gs3|mains_gs4)\.pdf")
 QUESTION_START = re.compile(r"^\s*(\d{1,3})\.\s+")
 MARKS_PATTERN = re.compile(r"\((\d{1,3})\s*marks?[,;]?\s*(\d{2,4})?\s*words?\)?", re.IGNORECASE)
-
-
-def extract_text(pdf_path: Path) -> str:
-    text_parts = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            text_parts.append(page.extract_text() or "")
-    return "\n".join(text_parts)
 
 
 def split_questions(text: str, year: int, paper: str) -> list[dict]:
@@ -82,7 +74,7 @@ def main():
 
         year, paper = int(match.group(1)), match.group(2)
         print(f"Parsing {pdf_path.name}...")
-        text = extract_text(pdf_path)
+        text = extract_pdf_text(pdf_path)
         questions = split_questions(text, year, paper)
         print(f"  -> extracted {len(questions)} questions")
         all_questions.extend(questions)

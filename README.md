@@ -21,3 +21,11 @@ applicable, and a ready-to-cite example for Mains/Essay answers.
   for an AI assistant (Claude Code or a future chat) helping you extend or
   debug this repo, so the design intent doesn't have to be re-explained
   each time.
+
+**Two related, on-demand subsystems** (separate from the daily pipeline
+above — each has its own README/ARCHITECTURE/USER_GUIDE/SKILL docs):
+
+- **[exam_analysis/](./exam_analysis/)** — analyzes 20 years of PYQs (why
+  was each question asked) and predicts likely future-year topics/questions.
+- **[topic_agent/](./topic_agent/)** — upload your own subject study
+  material; ask for any topic and get a Mains-ready summary + model answer.

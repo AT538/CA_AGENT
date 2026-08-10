@@ -52,6 +52,20 @@ def retrieve_context(article_text: str, top_k: int = 5) -> list[dict]:
     return matches
 
 
+def format_context(matches: list[dict]) -> str:
+    """Render retrieve_context() output as a compact text block suitable for
+    dropping straight into an LLM prompt."""
+    lines = []
+    for m in matches:
+        meta = m["metadata"]
+        if meta.get("type") == "pyq":
+            tag = f"PYQ {meta.get('paper', '?')} {meta.get('year', '?')}"
+        else:
+            tag = meta.get("topic") or meta.get("type")
+        lines.append(f"- [{tag}] {m['document'][:200]}")
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     sample = "The RBI announced a revision to the repo rate citing inflation concerns."
     for m in retrieve_context(sample):

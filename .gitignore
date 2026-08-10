@@ -4,5 +4,8 @@ __pycache__/
 knowledge_base/pyqs/raw/*.pdf
 knowledge_base/monthly_pdfs/auto/*.pdf
 knowledge_base/monthly_pdfs/manual/*.pdf
+topic_agent/sources/*/*.pdf
+topic_agent/sources/*/*.txt
+topic_agent/sources/*/*.md
 .claude/
 run_test*.log

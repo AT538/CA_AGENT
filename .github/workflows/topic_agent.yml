@@ -1,0 +1,75 @@
+name: Topic Agent - Mains Answer Generator (on-demand)
+
+# Generation only - deliberately NO index-rebuild input here. The raw
+# uploaded source files under topic_agent/sources/ are gitignored (see
+# topic_agent/SKILL.md), so a CI runner never has them; rebuilding the
+# index must happen locally, where the files actually are, then the
+# rebuilt topic_agent/index/ is committed for this workflow to read.
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Topic to generate a Mains summary + model answer for"
+        required: true
+        type: string
+      subject:
+        description: "Optional: restrict retrieval to one uploaded subject's sources"
+        required: false
+        type: string
+      force:
+        description: "Regenerate even if already cached"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed to commit the updated topic cache back
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Build CLI args
+        id: args
+        shell: bash
+        run: |
+          ARGS="--topic $(printf '%q' "${{ inputs.topic }}")"
+          if [ -n "${{ inputs.subject }}" ]; then
+            ARGS="$ARGS --subject $(printf '%q' "${{ inputs.subject }}")"
+          fi
+          if [ "${{ inputs.force }}" = "true" ]; then
+            ARGS="$ARGS --force"
+          fi
+          echo "cli_args=$ARGS" >> "$GITHUB_OUTPUT"
+
+      - name: Generate topic material
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: python -m topic_agent.run ${{ steps.args.outputs.cli_args }}
+
+      - name: Commit updated topic cache
+        run: |
+          git config user.name "upsc-agent-bot"
+          git config user.email "actions@github.com"
+          git add topic_agent/generated_topics.json
+          git diff --staged --quiet || git commit -m "Update topic_agent cache [automated]"
+          git push

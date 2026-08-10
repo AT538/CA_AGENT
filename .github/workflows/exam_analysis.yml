@@ -1,0 +1,109 @@
+name: PYQ Exam Analysis (on-demand)
+
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "Exam year to analyze, e.g. 2023 (leave blank with paper=all to run everything)"
+        required: false
+        type: string
+      paper:
+        description: "Paper to analyze"
+        required: true
+        type: choice
+        default: "all"
+        options:
+          - "all"
+          - "prelims_gs1"
+          - "mains_gs1"
+          - "mains_gs2"
+          - "mains_gs3"
+          - "mains_gs4"
+      target_year:
+        description: "Exam year to predict topics/questions for"
+        required: false
+        type: string
+        default: "2027"
+      predict_only:
+        description: "Skip analysis, just refresh the prediction from the existing cache"
+        required: false
+        type: boolean
+        default: false
+      force:
+        description: "Re-analyze even if already cached"
+        required: false
+        type: boolean
+        default: false
+      limit:
+        description: "Cap on NEW LLM analysis calls this run (blank = no cap)"
+        required: false
+        type: string
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed to commit the updated analysis cache back
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          # sentence-transformers pulls in torch, which defaults to the full
+          # CUDA build (~GBs of nvidia-*/triton/cuda-toolkit wheels) that a
+          # CPU-only GitHub-hosted runner never uses.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Build CLI args
+        id: args
+        shell: bash
+        run: |
+          ARGS=""
+          if [ "${{ inputs.predict_only }}" = "true" ]; then
+            ARGS="$ARGS --predict-only"
+          else
+            if [ "${{ inputs.paper }}" = "all" ] && [ -z "${{ inputs.year }}" ]; then
+              ARGS="$ARGS --all"
+            else
+              ARGS="$ARGS --paper ${{ inputs.paper }}"
+              if [ -n "${{ inputs.year }}" ]; then
+                ARGS="$ARGS --year ${{ inputs.year }}"
+              fi
+            fi
+          fi
+          if [ -n "${{ inputs.target_year }}" ]; then
+            ARGS="$ARGS --target-year ${{ inputs.target_year }}"
+          fi
+          if [ "${{ inputs.force }}" = "true" ]; then
+            ARGS="$ARGS --force"
+          fi
+          if [ -n "${{ inputs.limit }}" ]; then
+            ARGS="$ARGS --limit ${{ inputs.limit }}"
+          fi
+          echo "cli_args=$ARGS" >> "$GITHUB_OUTPUT"
+
+      - name: Run PYQ analysis
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: python -m exam_analysis.run ${{ steps.args.outputs.cli_args }}
+
+      - name: Commit updated analysis cache
+        run: |
+          git config user.name "upsc-agent-bot"
+          git config user.email "actions@github.com"
+          git add exam_analysis/analyzed_questions.json
+          git diff --staged --quiet || git commit -m "Update PYQ analysis cache [automated]"
+          git push
